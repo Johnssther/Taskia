@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, execute } from '@/lib/db';
+import { getCurrentUserId } from '@/lib/auth';
 import { Task, Subtask, Comment, UpdateTaskDTO, ApiResponse } from '@/lib/types';
 
 interface RouteParams {
@@ -11,14 +12,21 @@ interface TaskWithRelations extends Task {
   comments: (Comment & { author: string })[];
 }
 
-// GET - Obtener una tarea por ID con sus relaciones
+// GET - Obtener una tarea por ID con sus relaciones (solo si es del usuario)
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
-    
     const tasks = await query<Task>(
-      'SELECT * FROM tasks WHERE id = $1',
-      [id]
+      'SELECT * FROM tasks WHERE id = $1 AND user_id = $2',
+      [id, userId]
     );
 
     if (tasks.length === 0) {
@@ -59,13 +67,20 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// PUT - Actualizar tarea
+// PUT - Actualizar tarea (solo si es del usuario)
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
     const body: UpdateTaskDTO = await request.json();
 
-    // Construir query dinámicamente
     const updates: string[] = [];
     const values: unknown[] = [];
     let paramCount = 1;
@@ -114,9 +129,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    values.push(id);
+    values.push(id, userId);
     const result = await execute(
-      `UPDATE tasks SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+      `UPDATE tasks SET ${updates.join(', ')} WHERE id = $${paramCount} AND user_id = $${paramCount + 1} RETURNING *`,
       values
     );
 
@@ -140,14 +155,21 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// DELETE - Eliminar tarea
+// DELETE - Eliminar tarea (solo si es del usuario)
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { id } = await params;
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
 
+    const { id } = await params;
     const result = await execute(
-      'DELETE FROM tasks WHERE id = $1 RETURNING id',
-      [id]
+      'DELETE FROM tasks WHERE id = $1 AND user_id = $2 RETURNING id',
+      [id, userId]
     );
 
     if (result.rowCount === 0) {

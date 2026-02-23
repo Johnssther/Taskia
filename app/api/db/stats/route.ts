@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { getCurrentUserId } from '@/lib/auth';
 
 interface TaskStats {
   total_tasks: number;
@@ -28,39 +29,45 @@ interface SubtaskStats {
   completed_subtasks: number;
 }
 
-// GET - Obtener estadísticas del dashboard
-export async function GET() {
+// GET - Obtener estadísticas del dashboard del usuario
+export async function GET(request: NextRequest) {
   try {
-    // Estadísticas generales de tareas
-    const taskStats = await query<TaskStats>(`
-      SELECT 
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
+    const taskStats = await query<TaskStats>(
+      `SELECT 
         COUNT(*) as total_tasks,
         COUNT(*) FILTER (WHERE completed = TRUE) as completed_tasks,
         COUNT(*) FILTER (WHERE completed = FALSE) as pending_tasks,
         COUNT(*) FILTER (WHERE priority = 'high') as high_priority,
         COUNT(*) FILTER (WHERE priority = 'medium') as medium_priority,
         COUNT(*) FILTER (WHERE priority = 'low') as low_priority
-      FROM tasks
-      WHERE user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')
-    `);
+      FROM tasks WHERE user_id = $1`,
+      [userId]
+    );
 
-    // Estadísticas por categoría
-    const categoryStats = await query<CategoryStats>(`
-      SELECT 
+    const categoryStats = await query<CategoryStats>(
+      `SELECT 
         COALESCE(c.name, 'Sin categoría') as category_name,
         COALESCE(c.color, 'bg-gray-500') as category_color,
         COUNT(t.id) as task_count,
         COUNT(t.id) FILTER (WHERE t.completed = TRUE) as completed_count
       FROM tasks t
       LEFT JOIN categories c ON t.category_id = c.id
-      WHERE t.user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')
+      WHERE t.user_id = $1
       GROUP BY c.id, c.name, c.color
-      ORDER BY task_count DESC
-    `);
+      ORDER BY task_count DESC`,
+      [userId]
+    );
 
-    // Estadísticas de los últimos 7 días
-    const dailyStats = await query<DailyStats>(`
-      WITH dates AS (
+    const dailyStats = await query<DailyStats>(
+      `WITH dates AS (
         SELECT generate_series(
           CURRENT_DATE - INTERVAL '6 days',
           CURRENT_DATE,
@@ -72,30 +79,30 @@ export async function GET() {
         COALESCE(COUNT(t.id) FILTER (WHERE t.created_at::date = d.date), 0) as created,
         COALESCE(COUNT(t.id) FILTER (WHERE t.completed = TRUE AND t.updated_at::date = d.date), 0) as completed
       FROM dates d
-      LEFT JOIN tasks t ON t.user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')
+      LEFT JOIN tasks t ON t.user_id = $1
       GROUP BY d.date
-      ORDER BY d.date ASC
-    `);
+      ORDER BY d.date ASC`,
+      [userId]
+    );
 
-    // Estadísticas de subtareas
-    const subtaskStats = await query<SubtaskStats>(`
-      SELECT 
+    const subtaskStats = await query<SubtaskStats>(
+      `SELECT 
         COUNT(*) as total_subtasks,
         COUNT(*) FILTER (WHERE s.completed = TRUE) as completed_subtasks
       FROM subtasks s
       JOIN tasks t ON s.task_id = t.id
-      WHERE t.user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')
-    `);
+      WHERE t.user_id = $1`,
+      [userId]
+    );
 
-    // Total de comentarios
-    const commentStats = await query<{ total_comments: number }>(`
-      SELECT COUNT(*) as total_comments
-      FROM comments c
-      JOIN tasks t ON c.task_id = t.id
-      WHERE t.user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')
-    `);
+    const commentStats = await query<{ total_comments: number }>(
+      `SELECT COUNT(*) as total_comments
+       FROM comments c
+       JOIN tasks t ON c.task_id = t.id
+       WHERE t.user_id = $1`,
+      [userId]
+    );
 
-    // Tareas recientes
     const recentTasks = await query<{
       id: number;
       title: string;
@@ -104,21 +111,19 @@ export async function GET() {
       category_name: string;
       category_color: string;
       created_at: string;
-    }>(`
-      SELECT 
-        t.id,
-        t.title,
-        t.completed,
-        t.priority,
+    }>(
+      `SELECT 
+        t.id, t.title, t.completed, t.priority,
         COALESCE(c.name, 'Sin categoría') as category_name,
         COALESCE(c.color, 'bg-gray-500') as category_color,
         t.created_at
       FROM tasks t
       LEFT JOIN categories c ON t.category_id = c.id
-      WHERE t.user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')
+      WHERE t.user_id = $1
       ORDER BY t.created_at DESC
-      LIMIT 5
-    `);
+      LIMIT 5`,
+      [userId]
+    );
 
     return NextResponse.json({
       success: true,

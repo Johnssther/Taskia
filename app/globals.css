@@ -66,3 +66,31 @@ body {
 .animate-glow {
   animation: glow 2s ease-in-out infinite;
 }
+
+/* Landing: fade-in-up on load */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  opacity: 0;
+  animation: fade-in-up 0.7s ease-out forwards;
+}
+
+.landing-delay-1 { animation-delay: 0.1s; }
+.landing-delay-2 { animation-delay: 0.25s; }
+.landing-delay-3 { animation-delay: 0.4s; }
+.landing-delay-4 { animation-delay: 0.55s; }
+.landing-delay-5 { animation-delay: 0.7s; }
+.landing-delay-6 { animation-delay: 0.85s; }
+.landing-delay-7 { animation-delay: 1s; }
+.landing-delay-8 { animation-delay: 1.15s; }
+.landing-delay-9 { animation-delay: 1.3s; }
+.landing-delay-10 { animation-delay: 1.45s; }

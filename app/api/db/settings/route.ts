@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, execute } from '@/lib/db';
+import { getCurrentUserId } from '@/lib/auth';
 
 interface Settings {
   id: number;
@@ -10,6 +11,7 @@ interface Settings {
   default_category_id: number | null;
   show_completed_tasks: boolean;
   auto_archive_completed: boolean;
+  task_timer_auto_start: boolean;
   archive_after_days: number;
   notifications_enabled: boolean;
   email_notifications: boolean;
@@ -31,34 +33,42 @@ interface Settings {
 }
 
 // GET - Obtener configuración del usuario
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const settings = await query<Settings>(
       `SELECT s.*, c.name as default_category_name
        FROM settings s
        LEFT JOIN categories c ON s.default_category_id = c.id
-       WHERE s.user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')`
+       WHERE s.user_id = $1`,
+      [userId]
     );
 
     if (settings.length === 0) {
-      // Crear configuración por defecto si no existe
       const result = await execute(
-        `INSERT INTO settings (user_id)
-         SELECT id FROM users WHERE email = 'john.doe@example.com'
+        `INSERT INTO settings (user_id) VALUES ($1)
          ON CONFLICT (user_id) DO NOTHING
-         RETURNING *`
+         RETURNING *`,
+        [userId]
       );
-      
+
       if (result.rows.length > 0) {
         return NextResponse.json({
           success: true,
           data: result.rows[0],
         });
       }
-      
-      // Intentar obtener de nuevo
+
       const newSettings = await query<Settings>(
-        `SELECT * FROM settings WHERE user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')`
+        'SELECT * FROM settings WHERE user_id = $1',
+        [userId]
       );
       
       return NextResponse.json({
@@ -80,15 +90,23 @@ export async function GET() {
   }
 }
 
-// PUT - Actualizar configuración
+// PUT - Actualizar configuración del usuario
 export async function PUT(request: NextRequest) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
 
     // Construir query dinámicamente
     const allowedFields = [
       'theme', 'language', 'default_priority', 'default_category_id',
-      'show_completed_tasks', 'auto_archive_completed', 'archive_after_days',
+      'show_completed_tasks', 'auto_archive_completed', 'task_timer_auto_start', 'archive_after_days',
       'notifications_enabled', 'email_notifications', 'notification_sound',
       'daily_summary', 'reminder_before_due', 'ai_suggestions_enabled',
       'ai_auto_categorize', 'ai_model', 'tasks_per_page', 'default_view',
@@ -114,10 +132,10 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    values.push(userId);
     const result = await execute(
       `UPDATE settings SET ${updates.join(', ')} 
-       WHERE user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')
-       RETURNING *`,
+       WHERE user_id = $${paramCount} RETURNING *`,
       values
     );
 

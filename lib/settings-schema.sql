@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS settings (
     default_category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
     show_completed_tasks BOOLEAN DEFAULT TRUE,
     auto_archive_completed BOOLEAN DEFAULT FALSE,
+    task_timer_auto_start BOOLEAN DEFAULT FALSE,
     archive_after_days INTEGER DEFAULT 7,
     
     -- Configuración de notificaciones

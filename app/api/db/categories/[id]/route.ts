@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, execute } from '@/lib/db';
+import { getCurrentUserId } from '@/lib/auth';
 import { Category, UpdateCategoryDTO, ApiResponse } from '@/lib/types';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// GET - Obtener una categoría por ID
+// GET - Obtener una categoría por ID (solo si es del usuario)
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
     const category = await query<Category>(
-      'SELECT * FROM categories WHERE id = $1',
-      [id]
+      'SELECT * FROM categories WHERE id = $1 AND user_id = $2',
+      [id, userId]
     );
 
     if (category.length === 0) {
@@ -35,13 +44,20 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// PUT - Actualizar categoría
+// PUT - Actualizar categoría (solo si es del usuario)
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
     const body: UpdateCategoryDTO = await request.json();
 
-    // Construir query dinámicamente
     const updates: string[] = [];
     const values: unknown[] = [];
     let paramCount = 1;
@@ -66,9 +82,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    values.push(id);
+    values.push(id, userId);
     const result = await execute(
-      `UPDATE categories SET ${updates.join(', ')} WHERE id = $${paramCount} AND is_default = FALSE RETURNING *`,
+      `UPDATE categories SET ${updates.join(', ')} WHERE id = $${paramCount} AND user_id = $${paramCount + 1} AND is_default = FALSE RETURNING *`,
       values
     );
 
@@ -92,25 +108,30 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// DELETE - Eliminar categoría
+// DELETE - Eliminar categoría (solo si es del usuario)
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
 
-    // Primero mover las tareas a la categoría por defecto
+    // Solo si la categoría es del usuario: mover tareas a la categoría por defecto
     await execute(
       `UPDATE tasks SET category_id = (
-        SELECT id FROM categories WHERE is_default = TRUE AND user_id = (
-          SELECT user_id FROM categories WHERE id = $1
-        )
-      ) WHERE category_id = $1`,
-      [id]
+        SELECT id FROM categories WHERE is_default = TRUE AND user_id = $2
+      ) WHERE category_id = $1 AND user_id = $2`,
+      [id, userId]
     );
 
-    // Luego eliminar la categoría (no permitir eliminar la por defecto)
     const result = await execute(
-      'DELETE FROM categories WHERE id = $1 AND is_default = FALSE RETURNING id',
-      [id]
+      'DELETE FROM categories WHERE id = $1 AND user_id = $2 AND is_default = FALSE RETURNING id',
+      [id, userId]
     );
 
     if (result.rowCount === 0) {

@@ -9,12 +9,21 @@ export interface User {
   updated_at: string;
 }
 
+export interface Project {
+  id: number;
+  name: string;
+  user_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Category {
   id: number;
   name: string;
   color: string;
   icon: string;
   user_id: number;
+  project_id: number | null;
   is_default: boolean;
   created_at: string;
   updated_at: string;
@@ -74,16 +83,26 @@ export interface Comment {
 
 // DTOs para crear/actualizar
 
+export interface CreateProjectDTO {
+  name: string;
+}
+
+export interface UpdateProjectDTO {
+  name?: string;
+}
+
 export interface CreateCategoryDTO {
   name: string;
   color: string;
   icon?: string;
+  project_id?: number | null;
 }
 
 export interface UpdateCategoryDTO {
   name?: string;
   color?: string;
   icon?: string;
+  project_id?: number | null;
 }
 
 export interface CreateTaskDTO {
@@ -116,6 +135,18 @@ export interface CreateSubtaskDTO {
 export interface CreateCommentDTO {
   text: string;
   task_id: number;
+}
+
+export interface Document {
+  id: number;
+  ref_id: number;
+  ref_table: string;
+  original_filename: string;
+  file_path: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  extracted_text: string | null;
+  created_at: string;
 }
 
 // Respuesta API

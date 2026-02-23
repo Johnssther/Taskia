@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { getCurrentUserId } from '@/lib/auth';
 
 interface User {
   id: number;
@@ -20,16 +21,20 @@ interface User {
   updated_at: string;
 }
 
-// GET - Obtener usuario (por ahora retorna John Doe)
-export async function GET() {
+// GET - Obtener perfil del usuario autenticado
+export async function GET(request: NextRequest) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
     const users = await query<User>(
       `SELECT id, email, first_name, last_name, avatar_url, bio, phone, 
               location, website, job_title, company, is_premium, 
               email_verified, last_login, created_at, updated_at
-       FROM users 
-       WHERE email = $1`,
-      ['john.doe@example.com']
+       FROM users WHERE id = $1`,
+      [userId]
     );
 
     if (users.length === 0) {
@@ -43,9 +48,14 @@ export async function GET() {
   }
 }
 
-// PUT - Actualizar usuario
-export async function PUT(request: Request) {
+// PUT - Actualizar perfil del usuario autenticado
+export async function PUT(request: NextRequest) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
     const body = await request.json();
     const { first_name, last_name, bio, phone, location, website, job_title, company, avatar_url } = body;
 
@@ -61,11 +71,11 @@ export async function PUT(request: Request) {
            company = COALESCE($8, company),
            avatar_url = COALESCE($9, avatar_url),
            updated_at = CURRENT_TIMESTAMP
-       WHERE email = 'john.doe@example.com'
+       WHERE id = $10
        RETURNING id, email, first_name, last_name, avatar_url, bio, phone, 
                  location, website, job_title, company, is_premium, 
                  email_verified, last_login, created_at, updated_at`,
-      [first_name, last_name, bio, phone, location, website, job_title, company, avatar_url]
+      [first_name, last_name, bio, phone, location, website, job_title, company, avatar_url, userId]
     );
 
     if (result.length === 0) {

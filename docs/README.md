@@ -8,6 +8,7 @@ Bienvenido a la documentación completa de **TaskIA**, una aplicación de gesti�
 
 | Documento | Descripción |
 |-----------|-------------|
+| [**General**](./GENERAL.md) | **Todas las funcionalidades de la aplicación (resumen completo)** |
 | [Arquitectura](./ARQUITECTURA.md) | Estructura del proyecto, tecnologías y patrones de diseño |
 | [Base de Datos](./BASE_DE_DATOS.md) | Esquemas, tablas, relaciones y consultas SQL |
 | [API Reference](./API.md) | Documentación completa de todos los endpoints REST |

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   CheckCircleIcon,
@@ -27,8 +27,10 @@ import {
   RocketLaunchIcon,
   CurrencyDollarIcon,
   CalculatorIcon,
+  DocumentArrowUpIcon,
 } from '@heroicons/react/24/outline';
 import { CheckCircleIcon as CheckCircleSolidIcon } from '@heroicons/react/24/solid';
+import { convertUrlsToMarkdownLinks } from '@/lib/comment-utils';
 
 // Interfaz para el uso de tokens
 interface TokenUsage {
@@ -88,6 +90,16 @@ interface Category {
   created_at: string;
   is_default: boolean;
   isExpanded: boolean;
+  project_id?: number | null;
+}
+
+interface Project {
+  id: number;
+  name: string;
+  user_id: number;
+  created_at: string;
+  updated_at: string;
+  category_count?: number;
 }
 
 const priorityColors = {
@@ -136,6 +148,8 @@ const defaultSettings: Settings = {
 };
 
 export default function TasksPage() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
@@ -145,6 +159,7 @@ export default function TasksPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiCategoryName, setAiCategoryName] = useState('');
+  const [aiContextFiles, setAiContextFiles] = useState<File[]>([]);
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
@@ -152,6 +167,7 @@ export default function TasksPage() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState(categoryColors[0].value);
   const [newComment, setNewComment] = useState('');
+  const commentTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [tokenUsage, setTokenUsage] = useState<TokenUsage>({
@@ -173,9 +189,10 @@ export default function TasksPage() {
     }));
   };
 
-  // Contar categorías creadas por el usuario (excluyendo la por defecto)
+  // Contar categorías creadas por el usuario (excluyendo la por defecto) - total en el proyecto o global
   const userCategoriesCount = categories.filter(c => !c.is_default).length;
   const canCreateMoreCategories = userCategoriesCount < FREE_PLAN_CATEGORY_LIMIT;
+  const selectedProject = projects.find(p => p.id === selectedProjectId);
 
   // Cargar datos desde la base de datos
   useEffect(() => {
@@ -202,14 +219,31 @@ export default function TasksPage() {
           }
         }
 
-        // Cargar categorías
+        // Cargar proyectos
+        const projectsResponse = await fetch('/api/db/projects');
+        let initialProjectId: number | null = null;
+        if (projectsResponse.ok) {
+          const projectsData = await projectsResponse.json();
+          if (projectsData.success && projectsData.data?.length) {
+            setProjects(projectsData.data);
+            // Por defecto seleccionar el primer proyecto (o recuperar de localStorage)
+            const saved = typeof window !== 'undefined' ? localStorage.getItem('tasks_selected_project_id') : null;
+            const savedId = saved ? parseInt(saved, 10) : NaN;
+            const firstProject = projectsData.data[0];
+            initialProjectId = (!isNaN(savedId) && projectsData.data.some((p: Project) => p.id === savedId))
+              ? savedId
+              : (firstProject?.id ?? null);
+            setSelectedProjectId(initialProjectId);
+          }
+        }
+
+        // Cargar categorías (todas, para poder filtrar por proyecto)
         const catResponse = await fetch('/api/db/categories');
         let systemDefaultCatId: number | null = null;
         if (catResponse.ok) {
           const catData = await catResponse.json();
           if (catData.success && catData.data) {
             setCategories(catData.data.map((c: Category) => ({ ...c, isExpanded: true })));
-            // Obtener la categoría por defecto del sistema
             const defaultCat = catData.data.find((c: Category) => c.is_default);
             if (defaultCat) {
               systemDefaultCatId = defaultCat.id;
@@ -218,7 +252,6 @@ export default function TasksPage() {
         }
 
         // Establecer categoría por defecto para nuevas tareas
-        // Prioridad: configuración de usuario > categoría del sistema
         setSelectedCategoryForNewTask(settingsDefaultCategoryId || systemDefaultCatId);
 
         // Cargar tareas
@@ -239,6 +272,32 @@ export default function TasksPage() {
     loadData();
   }, []);
 
+  // Persistir proyecto seleccionado
+  useEffect(() => {
+    if (selectedProjectId !== null && typeof window !== 'undefined') {
+      localStorage.setItem('tasks_selected_project_id', String(selectedProjectId));
+    }
+  }, [selectedProjectId]);
+
+  // Categorías y tareas visibles según el proyecto seleccionado
+  const visibleCategories = selectedProjectId == null
+    ? categories
+    : categories.filter((c) => c.project_id === selectedProjectId);
+  const visibleCategoryIds = new Set(visibleCategories.map((c) => c.id));
+  const visibleTasks = selectedProjectId == null
+    ? tasks
+    : tasks.filter((t) => t.category_id != null && visibleCategoryIds.has(t.category_id));
+
+  // Si la categoría seleccionada para nuevas tareas no está en las visibles, resetear
+  useEffect(() => {
+    if (visibleCategories.length && selectedCategoryForNewTask != null) {
+      const isVisible = visibleCategories.some((c) => c.id === selectedCategoryForNewTask);
+      if (!isVisible) {
+        setSelectedCategoryForNewTask(visibleCategories[0].id);
+      }
+    }
+  }, [selectedProjectId, visibleCategories, selectedCategoryForNewTask]);
+
   const addCategory = async () => {
     if (!newCategoryName.trim()) return;
 
@@ -257,6 +316,7 @@ export default function TasksPage() {
           name: newCategoryName,
           color: newCategoryColor,
           icon: 'folder',
+          project_id: selectedProjectId ?? undefined,
         }),
       });
 
@@ -554,6 +614,7 @@ export default function TasksPage() {
           name: categoryName,
           color: randomColor,
           icon: 'cpu',
+          project_id: selectedProjectId ?? undefined,
         }),
       });
 
@@ -567,12 +628,29 @@ export default function TasksPage() {
         }
       }
 
+      // Extraer texto de archivos adjuntos (PDF, Word, PowerPoint) para contexto de la IA
+      let fileContext = '';
+      if (aiContextFiles.length > 0) {
+        const formData = new FormData();
+        aiContextFiles.forEach((f) => formData.append('files', f));
+        const extractRes = await fetch('/api/files/extract-text', { method: 'POST', body: formData });
+        if (extractRes.ok) {
+          const { results } = await extractRes.json();
+          if (Array.isArray(results)) {
+            fileContext = results
+              .filter((r: { text?: string }) => r.text)
+              .map((r: { name: string; text: string }) => `[Archivo: ${r.name}]\n${r.text}`)
+              .join('\n\n---\n\n');
+          }
+        }
+      }
+
       // Generar tareas con IA
       const apiKey = localStorage.getItem('openai_api_key');
       const response = await fetch('/api/tasks/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: aiPrompt, apiKey }),
+        body: JSON.stringify({ prompt: aiPrompt, apiKey, fileContext: fileContext || undefined }),
       });
 
       if (response.ok && newCategoryId) {
@@ -623,6 +701,7 @@ export default function TasksPage() {
       setIsGenerating(false);
       setAiPrompt('');
       setAiCategoryName('');
+      setAiContextFiles([]);
       setShowAiPanel(false);
     }
   };
@@ -669,10 +748,8 @@ export default function TasksPage() {
   };
 
   const getTasksByCategory = (categoryId: number) => {
-    return tasks.filter(t => {
-      // Filtrar por categoría
+    return visibleTasks.filter(t => {
       if (t.category_id !== categoryId) return false;
-      // Filtrar tareas completadas según configuración
       if (!settings.show_completed_tasks && t.completed) return false;
       return true;
     });
@@ -694,8 +771,8 @@ export default function TasksPage() {
     return colorInfo.gradient;
   };
 
-  const completedCount = tasks.filter(t => t.completed).length;
-  const totalCount = tasks.length;
+  const completedCount = visibleTasks.filter(t => t.completed).length;
+  const totalCount = visibleTasks.length;
 
   // Mostrar loading mientras se cargan los datos
   if (isLoading) {
@@ -714,14 +791,7 @@ export default function TasksPage() {
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Header */}
         <header className="mb-8">
-          <Link 
-            href="/"
-            className="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-4 transition-colors"
-          >
-            <ArrowLeftIcon className="w-4 h-4" />
-            Volver al Dashboard
-          </Link>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <SparklesIcon className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
@@ -731,23 +801,33 @@ export default function TasksPage() {
               </div>
               <p className="text-gray-600 dark:text-gray-400">
                 Gestiona tus tareas de forma inteligente con ayuda de la IA
+                {selectedProject && (
+                  <span className="block mt-1 text-indigo-600 dark:text-indigo-400 font-medium">
+                    Proyecto: {selectedProject.name}
+                  </span>
+                )}
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              <Link
-                href="/dashboard"
-                className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all shadow-md flex items-center gap-2"
-              >
-                <ChartBarIcon className="w-5 h-5" />
-                Dashboard
-              </Link>
-              <Link
-                href="/settings"
-                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all flex items-center gap-2"
-              >
-                <Cog6ToothIcon className="w-5 h-5" />
-                Configuración
-              </Link>
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* Selector de proyecto */}
+              <div className="flex items-center gap-2">
+                <label htmlFor="project-select" className="text-sm font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                  Proyecto:
+                </label>
+                <select
+                  id="project-select"
+                  value={selectedProjectId ?? ''}
+                  onChange={(e) => setSelectedProjectId(e.target.value ? parseInt(e.target.value, 10) : null)}
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-medium min-w-[160px]"
+                >
+                  <option value="">Todos los proyectos</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="text-right">
                 <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
                   {completedCount}/{totalCount}
@@ -787,7 +867,7 @@ export default function TasksPage() {
               </div>
 
               <div className="space-y-2">
-                {categories.map((category) => {
+                {visibleCategories.map((category) => {
                   const categoryTasks = getTasksByCategory(category.id);
                   const completedInCategory = categoryTasks.filter(t => t.completed).length;
                   const colorInfo = getCategoryColor(category.color);
@@ -800,33 +880,42 @@ export default function TasksPage() {
                   return (
                     <div key={category.id} className="group">
                       <div
-                        className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${colorInfo.light}`}
+                        className={`flex items-center justify-between p-2 rounded-lg transition-colors ${colorInfo.light}`}
                       >
-                        <div 
-                          className="flex items-center gap-2 flex-1"
-                          onClick={() => toggleCategoryExpanded(category.id)}
+                        <Link
+                          href={`/categories/${category.id}`}
+                          className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer hover:opacity-90"
                         >
-                          <span className={`w-3 h-3 rounded-full ${category.color}`}></span>
-                          <span className={`font-medium text-sm ${colorInfo.text} flex items-center gap-1`}>
+                          <span className={`w-3 h-3 rounded-full flex-shrink-0 ${category.color}`}></span>
+                          <span className={`font-medium text-sm ${colorInfo.text} flex items-center gap-1 truncate`}>
                             {getCategoryIcon(category.icon, "w-4 h-4")} {category.name}
                           </span>
-                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                          <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
                             ({completedInCategory}/{categoryTasks.length})
                           </span>
-                        </div>
-                        <div className="flex items-center gap-1">
+                        </Link>
+                        <div className="flex items-center gap-1 flex-shrink-0">
                           {!category.is_default && (
                             <button
                               onClick={(e) => {
+                                e.preventDefault();
                                 e.stopPropagation();
                                 deleteCategory(category.id);
                               }}
-                              className="p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                              title="Eliminar categoría"
                             >
                               <TrashIcon className="w-4 h-4" />
                             </button>
                           )}
-                          <button onClick={() => toggleCategoryExpanded(category.id)}>
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleCategoryExpanded(category.id);
+                            }}
+                            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                          >
                             {category.isExpanded ? (
                               <ChevronDownIcon className="w-4 h-4 text-gray-400" />
                             ) : (
@@ -1000,7 +1089,7 @@ export default function TasksPage() {
                         onChange={(e) => setSelectedCategoryForNewTask(parseInt(e.target.value))}
                         className="bg-transparent border-none focus:ring-0 text-sm text-gray-700 dark:text-gray-300 cursor-pointer pr-6"
                       >
-                        {categories.map((cat) => (
+                        {visibleCategories.map((cat) => (
                           <option key={cat.id} value={cat.id}>
                             {cat.name}
                           </option>
@@ -1055,6 +1144,26 @@ export default function TasksPage() {
                     Describe tu proyecto y la IA generará las tareas automáticamente
                   </p>
 
+                  {/* Proyecto donde se creará la categoría */}
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="ai-project-select" className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                      Proyecto
+                    </label>
+                    <select
+                      id="ai-project-select"
+                      value={selectedProjectId ?? ''}
+                      onChange={(e) => setSelectedProjectId(e.target.value ? parseInt(e.target.value, 10) : null)}
+                      className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm min-w-0"
+                    >
+                      <option value="">Sin proyecto (general)</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   {/* Nombre de categoría */}
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 flex-1">
@@ -1066,6 +1175,51 @@ export default function TasksPage() {
                         placeholder="Nombre de la categoría (opcional)"
                         className="bg-transparent border-none focus:ring-0 text-sm text-gray-700 dark:text-gray-300 w-full placeholder:text-gray-400"
                       />
+                    </div>
+                  </div>
+
+                  {/* Archivos para contexto de la IA (PDF, Word, PowerPoint) */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-600 dark:text-gray-400 flex items-center gap-2">
+                      <DocumentArrowUpIcon className="w-4 h-4" />
+                      Archivos para contexto (opcional)
+                    </label>
+                    <div className="flex flex-col gap-2">
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.ppt,.pptx,.csv,.txt,.xls,.xlsx"
+                        multiple
+                        onChange={(e) => {
+                          const added = Array.from(e.target.files || []);
+                          if (!added.length) return;
+                          setAiContextFiles((prev) => [...prev, ...added].slice(0, 5));
+                          e.target.value = '';
+                        }}
+                        className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-50 dark:file:bg-indigo-900/30 file:text-indigo-600 dark:file:text-indigo-400 file:font-medium file:cursor-pointer"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        PDF, Word (.doc, .docx) o PowerPoint (.ppt, .pptx). Máx. 5 archivos, 15 MB cada uno.
+                      </p>
+                      {aiContextFiles.length > 0 && (
+                        <ul className="flex flex-wrap gap-2">
+                          {aiContextFiles.map((file, idx) => (
+                            <li
+                              key={`${file.name}-${idx}`}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm text-gray-700 dark:text-gray-300"
+                            >
+                              <span className="truncate max-w-[140px]" title={file.name}>{file.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => setAiContextFiles((prev) => prev.filter((_, i) => i !== idx))}
+                                className="p-0.5 text-gray-400 hover:text-red-500 rounded"
+                                title="Quitar"
+                              >
+                                <XMarkIcon className="w-4 h-4" />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   </div>
 
@@ -1115,7 +1269,7 @@ export default function TasksPage() {
 
             {/* Lista de tareas por categoría */}
             <div className="space-y-6">
-              {categories.map((category) => {
+              {visibleCategories.map((category) => {
                 const categoryTasks = getTasksByCategory(category.id);
                 // Ocultar categorías vacías según configuración (excepto la por defecto)
                 if (categoryTasks.length === 0 && !category.is_default) {
@@ -1127,24 +1281,49 @@ export default function TasksPage() {
                 return (
                   <div key={category.id} className="space-y-3">
                     {/* Header de categoría */}
-                    <div 
-                      className={`flex items-center justify-between p-3 rounded-lg cursor-pointer ${colorInfo.light}`}
-                      onClick={() => toggleCategoryExpanded(category.id)}
+                    <div
+                      className={`flex items-center justify-between p-3 rounded-lg ${colorInfo.light}`}
                     >
-                      <div className="flex items-center gap-3">
-                        <span className={`w-4 h-4 rounded-full ${category.color}`}></span>
-                        <h3 className={`font-bold ${colorInfo.text} flex items-center gap-2`}>
+                      <Link
+                        href={`/categories/${category.id}`}
+                        className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-90"
+                      >
+                        <span className={`w-4 h-4 rounded-full flex-shrink-0 ${category.color}`}></span>
+                        <h3 className={`font-bold ${colorInfo.text} flex items-center gap-2 truncate`}>
                           {getCategoryIcon(category.icon, "w-5 h-5")} {category.name}
                         </h3>
-                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                        <span className="text-sm text-gray-500 dark:text-gray-400 flex-shrink-0">
                           ({categoryTasks.filter(t => t.completed).length}/{categoryTasks.length} completadas)
                         </span>
+                      </Link>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {!category.is_default && (
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              deleteCategory(category.id);
+                            }}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                            title="Eliminar categoría"
+                          >
+                            <TrashIcon className="w-5 h-5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            toggleCategoryExpanded(category.id);
+                          }}
+                          className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        >
+                          {category.isExpanded ? (
+                            <ChevronDownIcon className="w-5 h-5 text-gray-400" />
+                          ) : (
+                            <ChevronRightIcon className="w-5 h-5 text-gray-400" />
+                          )}
+                        </button>
                       </div>
-                      {category.isExpanded ? (
-                        <ChevronDownIcon className="w-5 h-5 text-gray-400" />
-                      ) : (
-                        <ChevronRightIcon className="w-5 h-5 text-gray-400" />
-                      )}
                     </div>
 
                     {/* Tareas de la categoría */}
@@ -1300,7 +1479,7 @@ export default function TasksPage() {
                       onChange={(e) => updateTaskCategory(selectedTask.id, parseInt(e.target.value))}
                       className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                     >
-                      {categories.map((cat) => (
+                      {visibleCategories.map((cat) => (
                         <option key={cat.id} value={cat.id}>
                           {cat.name}
                         </option>
@@ -1520,20 +1699,35 @@ export default function TasksPage() {
                           </button>
                           <div className="flex-1"></div>
                           <span className="text-xs text-gray-400">
-                            {newComment.length}/1000
+                            {newComment.length} caracteres
                           </span>
                         </div>
                         
                         {/* Textarea */}
                         <textarea
+                          ref={commentTextareaRef}
                           value={newComment}
-                          onChange={(e) => setNewComment(e.target.value.slice(0, 1000))}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          onPaste={(e) => {
+                            const pasted = e.clipboardData.getData('text');
+                            const processed = convertUrlsToMarkdownLinks(pasted);
+                            if (pasted !== processed) {
+                              e.preventDefault();
+                              const ta = commentTextareaRef.current;
+                              if (ta) {
+                                const start = ta.selectionStart;
+                                const end = ta.selectionEnd;
+                                const next = newComment.slice(0, start) + processed + newComment.slice(end);
+                                setNewComment(next);
+                              }
+                            }
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && e.ctrlKey) {
                               addComment(selectedTask.id);
                             }
                           }}
-                          placeholder="Escribe un comentario... (Ctrl+Enter para enviar)"
+                          placeholder="Escribe un comentario... (Ctrl+Enter para enviar). Al pegar texto, los enlaces se convierten automáticamente."
                           rows={3}
                           className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none"
                         />

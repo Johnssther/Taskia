@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execute } from '@/lib/db';
+import { getCurrentUserId } from '@/lib/auth';
 import { Subtask, ApiResponse } from '@/lib/types';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// PUT - Actualizar subtarea (toggle completed)
+// PUT - Actualizar subtarea (solo si la tarea es del usuario)
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
     const body = await request.json();
 
@@ -32,9 +41,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    values.push(id);
+    values.push(id, userId);
     const result = await execute(
-      `UPDATE subtasks SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+      `UPDATE subtasks SET ${updates.join(', ')}
+       WHERE id = $${paramCount}
+         AND task_id IN (SELECT id FROM tasks WHERE user_id = $${paramCount + 1})
+       RETURNING *`,
       values
     );
 
@@ -58,14 +70,24 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// DELETE - Eliminar subtarea
+// DELETE - Eliminar subtarea (solo si la tarea es del usuario)
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
 
     const result = await execute(
-      'DELETE FROM subtasks WHERE id = $1 RETURNING id',
-      [id]
+      `DELETE FROM subtasks
+       WHERE id = $1 AND task_id IN (SELECT id FROM tasks WHERE user_id = $2)
+       RETURNING id`,
+      [id, userId]
     );
 
     if (result.rowCount === 0) {

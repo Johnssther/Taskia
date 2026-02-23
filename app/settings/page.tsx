@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  ArrowLeftIcon,
   ArrowPathIcon,
   CheckIcon,
   Cog6ToothIcon,
@@ -61,6 +60,7 @@ interface Settings {
   default_category_id: number | null;
   show_completed_tasks: boolean;
   auto_archive_completed: boolean;
+  task_timer_auto_start: boolean;
   archive_after_days: number;
   notifications_enabled: boolean;
   email_notifications: boolean;
@@ -268,13 +268,6 @@ export default function SettingsPage() {
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         {/* Header */}
         <header className="mb-8">
-          <Link 
-            href="/tasks"
-            className="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-4 transition-colors"
-          >
-            <ArrowLeftIcon className="w-4 h-4" />
-            Volver a Tareas
-          </Link>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-4xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
@@ -389,6 +382,18 @@ export default function SettingsPage() {
                     <Switch 
                       checked={settings.show_completed_tasks} 
                       onChange={() => updateSetting('show_completed_tasks', !settings.show_completed_tasks)} 
+                    />
+                  </div>
+
+                  {/* Tiempo de tarea automático */}
+                  <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white">Tiempo de tarea automático</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Al entrar a una tarea el cronómetro se inicia solo; al salir o recargar se guarda. Si está activo, el tiempo se guarda también cada minuto.</p>
+                    </div>
+                    <Switch 
+                      checked={settings.task_timer_auto_start ?? false} 
+                      onChange={() => updateSetting('task_timer_auto_start', !(settings.task_timer_auto_start ?? false))} 
                     />
                   </div>
 

@@ -36,6 +36,9 @@ yarn-error.log*
 # config files with sensitive data
 /.config
 
+# uploaded files (documents)
+/files
+
 # vercel
 .vercel
 

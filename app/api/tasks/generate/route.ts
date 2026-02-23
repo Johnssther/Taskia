@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, apiKey } = await request.json();
+    const { prompt, apiKey, fileContext } = await request.json();
 
     // Usar API key del cliente o la variable de entorno como fallback
     const openaiApiKey = apiKey || process.env.OPENAI_API_KEY;
@@ -59,7 +59,9 @@ FORMATO DE RESPUESTA (JSON):
           },
           {
             role: 'user',
-            content: `Genera una lista de tareas para: ${prompt}`
+            content: fileContext && fileContext.trim()
+              ? `Contexto extraído de los archivos adjuntos del usuario:\n\n${fileContext.trim()}\n\n---\n\nGenera una lista de tareas para: ${prompt}`
+              : `Genera una lista de tareas para: ${prompt}`
           }
         ],
         temperature: 0.7,

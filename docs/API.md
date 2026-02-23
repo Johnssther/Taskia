@@ -537,6 +537,85 @@ Obtiene sugerencias de IA para completar una tarea específica.
 
 ---
 
+### Generar Imágenes
+
+#### POST /api/generate-images
+
+Genera imágenes usando Google Imagen (Vertex AI) a partir de una descripción de texto.
+
+**Body:**
+```json
+{
+  "prompt": "Un gato leyendo un periódico en un café parisino, estilo acuarela",
+  "projectId": "mi-proyecto-123",
+  "region": "us-central1",
+  "model": "imagen-4.0-generate-001",
+  "aspectRatio": "16:9",
+  "sampleCount": 2,
+  "addWatermark": true,
+  "enhancePrompt": true,
+  "apiKey": "ya29..." // Opcional: Access token de Google Cloud
+}
+```
+
+**Parámetros:**
+- `prompt` (requerido): Descripción de la imagen a generar
+- `projectId` (opcional): Google Cloud Project ID (o usar `GOOGLE_CLOUD_PROJECT_ID` en env)
+- `region` (opcional): Región de Google Cloud (default: "us-central1")
+- `model` (opcional): Modelo de Imagen (default: "imagen-4.0-generate-001")
+- `aspectRatio` (opcional): "1:1" | "3:4" | "4:3" | "16:9" | "9:16" (default: "1:1")
+- `sampleCount` (opcional): Número de imágenes a generar (1-4, default: 1)
+- `addWatermark` (opcional): Agregar watermark digital (default: true)
+- `enhancePrompt` (opcional): Mejorar prompt automáticamente (default: true)
+- `apiKey` (opcional): Access token de Google Cloud (o usar `GOOGLE_ACCESS_TOKEN` en env)
+
+**Respuesta:**
+```json
+{
+  "images": [
+    {
+      "id": 1,
+      "mimeType": "image/png",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+      "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+      "enhancedPrompt": "A cat reading a newspaper in a Parisian café, watercolor style, soft lighting"
+    },
+    {
+      "id": 2,
+      "mimeType": "image/png",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+      "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+      "enhancedPrompt": null
+    }
+  ],
+  "count": 2,
+  "model": "imagen-4.0-generate-001",
+  "prompt": "Un gato leyendo un periódico en un café parisino, estilo acuarela",
+  "metadata": {
+    "projectId": "mi-proyecto-123",
+    "region": "us-central1",
+    "aspectRatio": "16:9",
+    "sampleCount": 2,
+    "addWatermark": true
+  }
+}
+```
+
+**Errores:**
+- `400`: Prompt vacío, Project ID no configurado, o autenticación faltante
+- `401`: Token de acceso inválido o expirado
+- `403`: Sin permisos para Vertex AI API
+- `500`: Error de Vertex AI o no se generaron imágenes
+
+**Notas:**
+- Requiere configuración de Google Cloud (proyecto, facturación, Vertex AI API habilitada)
+- Para autenticación, puedes usar:
+  - Access token directo en `apiKey` o `GOOGLE_ACCESS_TOKEN`
+  - Application Default Credentials (`gcloud auth application-default login`)
+  - Service Account Key (`GOOGLE_APPLICATION_CREDENTIALS`)
+
+---
+
 ## Códigos de Estado HTTP
 
 | Código | Significado |
@@ -680,4 +759,14 @@ curl -X DELETE http://localhost:3000/api/db/tasks/1
 curl -X POST http://localhost:3000/api/tasks/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Organizar una conferencia"}'
+
+# Generar imágenes con Google Imagen
+curl -X POST http://localhost:3000/api/generate-images \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Un paisaje montañoso al atardecer",
+    "projectId": "mi-proyecto",
+    "aspectRatio": "16:9",
+    "apiKey": "ya29..."
+  }'
 ```

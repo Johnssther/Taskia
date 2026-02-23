@@ -538,3 +538,256 @@ const response = await fetch('https://api.anthropic.com/v1/messages', {
   }),
 });
 ```
+
+---
+
+## Generación de Imágenes con Google Imagen
+
+TaskIA integra Google Imagen (Vertex AI) para generar imágenes a partir de descripciones de texto.
+
+### Endpoint: POST /api/generate-images
+
+### Configuración Requerida
+
+Antes de usar este endpoint, necesitas:
+
+1. **Proyecto de Google Cloud**
+   - Crear o seleccionar un proyecto en [Google Cloud Console](https://console.cloud.google.com/)
+   - Habilitar facturación
+   - Habilitar la API de Vertex AI
+
+2. **Autenticación** (una de las siguientes opciones):
+   
+   **Opción A: Access Token Directo**
+   ```env
+   # .env.local
+   GOOGLE_ACCESS_TOKEN=ya29.tu-access-token-aqui
+   GOOGLE_CLOUD_PROJECT_ID=tu-project-id
+   GOOGLE_CLOUD_REGION=us-central1
+   ```
+   
+   **Opción B: Application Default Credentials (Recomendado para desarrollo local)**
+   ```bash
+   # Instalar Google Cloud SDK
+   gcloud auth application-default login
+   ```
+   
+   **Opción C: Service Account Key**
+   ```env
+   # .env.local
+   GOOGLE_APPLICATION_CREDENTIALS=/ruta/a/service-account-key.json
+   GOOGLE_CLOUD_PROJECT_ID=tu-project-id
+   ```
+
+### Parámetros del Request
+
+```typescript
+{
+  prompt: string;              // Requerido: Descripción de la imagen a generar
+  apiKey?: string;             // Opcional: Access token de Google Cloud
+  projectId?: string;          // Opcional: Google Cloud Project ID
+  region?: string;             // Opcional: Región (default: "us-central1")
+  model?: string;             // Opcional: Modelo de Imagen (default: "imagen-4.0-generate-001")
+  aspectRatio?: string;        // Opcional: "1:1" | "3:4" | "4:3" | "16:9" | "9:16" (default: "1:1")
+  sampleCount?: number;        // Opcional: Número de imágenes (1-4, default: 1)
+  addWatermark?: boolean;      // Opcional: Agregar watermark digital (default: true)
+  enhancePrompt?: boolean;     // Opcional: Mejorar prompt automáticamente (default: true)
+}
+```
+
+### Ejemplo de Uso
+
+**Request:**
+```json
+{
+  "prompt": "Un gato leyendo un periódico en un café parisino, estilo acuarela",
+  "projectId": "mi-proyecto-123",
+  "region": "us-central1",
+  "aspectRatio": "16:9",
+  "sampleCount": 2,
+  "apiKey": "ya29.tu-access-token"
+}
+```
+
+**Response:**
+```json
+{
+  "images": [
+    {
+      "id": 1,
+      "mimeType": "image/png",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+      "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+      "enhancedPrompt": "A cat reading a newspaper in a Parisian café, watercolor style, soft lighting, artistic composition"
+    },
+    {
+      "id": 2,
+      "mimeType": "image/png",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+      "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+      "enhancedPrompt": null
+    }
+  ],
+  "count": 2,
+  "model": "imagen-4.0-generate-001",
+  "prompt": "Un gato leyendo un periódico en un café parisino, estilo acuarela",
+  "metadata": {
+    "projectId": "mi-proyecto-123",
+    "region": "us-central1",
+    "aspectRatio": "16:9",
+    "sampleCount": 2,
+    "addWatermark": true
+  }
+}
+```
+
+### Modelos Disponibles
+
+| Modelo | Descripción | Uso Recomendado |
+|--------|-------------|-----------------|
+| `imagen-4.0-generate-001` | Modelo estándar GA | Uso general |
+| `imagen-4.0-fast-generate-001` | Generación rápida | Cuando la velocidad es prioritaria |
+| `imagen-4.0-ultra-generate-001` | Máxima calidad | Cuando se requiere la mejor calidad |
+| `imagen-3.0-generate-002` | Versión anterior | Compatibilidad |
+
+**Nota:** Los modelos preview (`imagen-4.0-generate-preview-06-06`) serán removidos el 30 de noviembre de 2025.
+
+### Aspect Ratios Disponibles
+
+- `1:1` - Cuadrado (default)
+- `3:4` - Vertical (Ads, redes sociales)
+- `4:3` - Horizontal (TV, fotografía)
+- `16:9` - Panorámico (paisajes)
+- `9:16` - Vertical (retratos, móvil)
+
+### Características
+
+1. **Watermark Digital (SynthID)**
+   - Por defecto, todas las imágenes incluyen un watermark invisible
+   - Puede verificarse usando la herramienta de verificación de Google
+   - Para deshabilitar: `addWatermark: false`
+
+2. **Mejora Automática de Prompts**
+   - El modelo puede mejorar automáticamente el prompt para mejores resultados
+   - Para prompts complejos con `imagen-4.0-fast-generate-001`, considera deshabilitar: `enhancePrompt: false`
+
+3. **Seguridad y Filtros**
+   - El modelo aplica filtros de contenido responsable
+   - Puede rechazar prompts que violen políticas de seguridad
+
+### Ejemplo de Implementación en Frontend
+
+```typescript
+const generateImage = async (prompt: string) => {
+  try {
+    const response = await fetch('/api/generate-images', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt,
+        projectId: process.env.NEXT_PUBLIC_GOOGLE_PROJECT_ID,
+        region: 'us-central1',
+        aspectRatio: '16:9',
+        sampleCount: 1,
+        apiKey: localStorage.getItem('google_access_token'), // Opcional
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error);
+    }
+
+    const data = await response.json();
+    
+    // Mostrar las imágenes generadas
+    data.images.forEach((image: any) => {
+      const img = document.createElement('img');
+      img.src = image.dataUrl;
+      document.body.appendChild(img);
+    });
+
+    return data;
+  } catch (error) {
+    console.error('Error generando imagen:', error);
+    throw error;
+  }
+};
+```
+
+### Obtención de Access Token
+
+Para obtener un access token de Google Cloud:
+
+```bash
+# Opción 1: Usando gcloud CLI
+gcloud auth print-access-token
+
+# Opción 2: Usando Application Default Credentials
+gcloud auth application-default login
+# Luego el token se obtiene automáticamente
+
+# Opción 3: Desde Service Account
+gcloud auth activate-service-account --key-file=service-account-key.json
+gcloud auth print-access-token
+```
+
+### Errores Comunes
+
+| Error | Causa | Solución |
+|-------|-------|----------|
+| 401 Unauthorized | Token inválido o expirado | Obtener nuevo access token |
+| 403 Forbidden | Sin permisos para Vertex AI | Habilitar Vertex AI API y verificar IAM roles |
+| 400 Bad Request | Project ID no configurado | Configurar GOOGLE_CLOUD_PROJECT_ID |
+| No se generaron imágenes | Contenido filtrado por seguridad | Modificar el prompt |
+
+### Costos
+
+Los costos de Google Imagen varían según:
+- Modelo utilizado
+- Resolución de la imagen
+- Región
+
+Consulta los [precios actuales](https://cloud.google.com/vertex-ai/pricing) en la documentación de Google Cloud.
+
+---
+
+## Arquitectura Actualizada
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      CLIENTE (Browser)                       │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  localStorage: openai_api_key, google_access_token  │   │
+│  │                                                       │   │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌───────────┐  │   │
+│  │  │ TasksPage    │  │ TaskDetail   │  │ Settings  │  │   │
+│  │  │ (Generate)   │  │ (Suggestions)│  │ (API Key) │  │   │
+│  │  └──────────────┘  └──────────────┘  └───────────┘  │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      NEXT.JS API ROUTES                      │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  /api/tasks/generate     - Genera tareas con IA     │   │
+│  │  /api/tasks/suggestions  - Obtiene sugerencias      │   │
+│  │  /api/generate-images    - Genera imágenes (Imagen)│   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+┌──────────────────────────┐  ┌──────────────────────────┐
+│      OPENAI API          │  │   GOOGLE VERTEX AI         │
+│  ┌────────────────────┐  │  │  ┌────────────────────┐   │
+│  │  Modelo:           │  │  │  │  Modelo:           │   │
+│  │  gpt-4o-mini       │  │  │  │  imagen-4.0-*      │   │
+│  │  Endpoint:         │  │  │  │  Endpoint:         │   │
+│  │  /chat/completions │  │  │  │  /predict          │   │
+│  └────────────────────┘  │  │  └────────────────────┘   │
+└──────────────────────────┘  └──────────────────────────┘
+```

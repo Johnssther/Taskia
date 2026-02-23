@@ -33,6 +33,10 @@ interface TaskContext {
 interface TaskAIChatProps {
   task: TaskContext;
   categoryName?: string;
+  /** Archivos subidos en la página de la tarea (se usan como contexto para la IA) */
+  taskPageFiles?: File[];
+  /** Texto ya extraído de documentos guardados (alternativa a taskPageFiles cuando hay persistencia) */
+  taskPageContextText?: string;
 }
 
 // Sugerencias rápidas para iniciar conversación
@@ -68,7 +72,7 @@ const emotionalStates = [
   },
 ];
 
-export default function TaskAIChat({ task, categoryName }: TaskAIChatProps) {
+export default function TaskAIChat({ task, categoryName, taskPageFiles = [], taskPageContextText }: TaskAIChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -142,6 +146,30 @@ Categoría: ${categoryName || 'Sin categoría'}${subtasksInfo}${timeInfo}${timeS
         return;
       }
 
+      // Contexto de archivos: texto pre-extraído (documentos guardados) o extracción desde archivos en memoria
+      let fileContextSection = '';
+      if (taskPageContextText && taskPageContextText.trim()) {
+        fileContextSection = '\n\nCONTEXTO DE ARCHIVOS ADJUNTOS (usa esta información para responder):\n' + taskPageContextText.trim();
+      } else if (taskPageFiles.length > 0) {
+        const formData = new FormData();
+        taskPageFiles.forEach((f) => formData.append('files', f));
+        try {
+          const extractRes = await fetch('/api/files/extract-text', { method: 'POST', body: formData });
+          if (extractRes.ok) {
+            const { results } = await extractRes.json();
+            if (Array.isArray(results) && results.some((r: { text?: string }) => r.text)) {
+              fileContextSection = '\n\nCONTEXTO DE ARCHIVOS ADJUNTOS (usa esta información para responder):\n' +
+                results
+                  .filter((r: { text?: string }) => r.text)
+                  .map((r: { name: string; text: string }) => `[Archivo: ${r.name}]\n${r.text.slice(0, 12000)}`)
+                  .join('\n\n---\n\n');
+            }
+          }
+        } catch {
+          // Si falla la extracción, continuar sin contexto de archivos
+        }
+      }
+
       // Construir historial de mensajes para contexto
       const conversationHistory = messages.map(msg => ({
         role: msg.role as 'user' | 'assistant',
@@ -161,7 +189,7 @@ Categoría: ${categoryName || 'Sin categoría'}${subtasksInfo}${timeInfo}${timeS
               role: 'system',
               content: `Eres un asistente de productividad experto y amigable. Tu ÚNICO objetivo es ayudar al usuario a completar la tarea específica que tiene asignada.
 
-${buildTaskContext()}
+${buildTaskContext()}${fileContextSection}
 
 REGLAS IMPORTANTES:
 1. SOLO responde preguntas relacionadas con esta tarea específica
@@ -463,6 +491,11 @@ El usuario puede indicar su estado emocional. Responde de forma apropiada:
 
           {/* Input Area */}
           <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            {((taskPageContextText && taskPageContextText.trim()) || taskPageFiles.length > 0) && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                La IA usará los archivos de la sección «Archivos adjuntos» como contexto.
+              </p>
+            )}
             <div className="flex items-end gap-2">
               <textarea
                 ref={inputRef}

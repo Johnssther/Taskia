@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, execute } from '@/lib/db';
+import { getCurrentUserId } from '@/lib/auth';
 import { Task, Subtask, Comment, CreateTaskDTO, ApiResponse } from '@/lib/types';
 
 interface TaskWithRelations extends Task {
@@ -7,14 +8,22 @@ interface TaskWithRelations extends Task {
   comments: (Comment & { author: string })[];
 }
 
-// GET - Obtener todas las tareas con subtareas y comentarios
-export async function GET() {
+// GET - Obtener todas las tareas del usuario con subtareas y comentarios
+export async function GET(request: NextRequest) {
   try {
-    // Obtener tareas
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const tasks = await query<Task>(
       `SELECT t.* FROM tasks t
-       WHERE t.user_id = (SELECT id FROM users WHERE email = 'john.doe@example.com')
-       ORDER BY t.created_at DESC`
+       WHERE t.user_id = $1
+       ORDER BY t.created_at DESC`,
+      [userId]
     );
 
     // Obtener subtareas para todas las tareas
@@ -63,6 +72,14 @@ export async function GET() {
 // POST - Crear nueva tarea
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getCurrentUserId(request);
+    if (userId === null) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
     const body: CreateTaskDTO = await request.json();
 
     if (!body.title) {
@@ -72,10 +89,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Crear la tarea
     const result = await execute(
       `INSERT INTO tasks (title, description, priority, due_date, category_id, estimated_time, user_id)
-       SELECT $1, $2, $3, $4, $5, $6, id FROM users WHERE email = 'john.doe@example.com'
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
       [
         body.title,
@@ -84,6 +100,7 @@ export async function POST(request: NextRequest) {
         body.due_date || null,
         body.category_id || null,
         body.estimated_time || null,
+        userId,
       ]
     );
 
