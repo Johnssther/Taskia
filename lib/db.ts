@@ -1,8 +1,14 @@
 import { Pool } from 'pg';
 
+const isLocalHost = (host: string) =>
+  !host || host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.');
+
+const dbHost = process.env.DB_HOST || '192.168.56.1';
+const useSsl = process.env.DB_SSL === 'true' || (process.env.DB_SSL !== 'false' && !isLocalHost(dbHost));
+
 // Configuración de la conexión a PostgreSQL
 const pool = new Pool({
-  host: process.env.DB_HOST || '192.168.56.1',
+  host: dbHost,
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'db_taskia',
   user: process.env.DB_USER || 'postgres',
@@ -10,6 +16,10 @@ const pool = new Pool({
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  ...(useSsl && {
+    // Aceptar certificados autofirmados (común en DBs cloud). Para exigir cert válido: DB_SSL_REJECT_UNAUTHORIZED=true
+    ssl: { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true' },
+  }),
 });
 
 // Verificar conexión
